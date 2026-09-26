@@ -38,9 +38,18 @@ ctest --test-dir /tmp/orbital-core-build --output-on-failure
 - Arrival stores the actual movement frame. Fixed movement preserves that plane.
 - Frame turning is limited to 8 rad/s; movement is 12 m/s, convergence 20 m/s.
 - State-change events include tick, real time, position and anchor data; session
-  metrics include tactical intervals and distance. This is recording infrastructure,
-  **not yet a complete replay recording/playback implementation**.
+  metrics include tactical intervals, pattern durations and distance.
+- Optional 75-second encounter: shell, helix and lattice, each lasting 25 seconds.
+  Batched bullet state, swept relative collision, 0.6-second invulnerability and
+  closest-approach danger estimation remain entirely engine-independent.
+- `Recording` stores fixed-tick inputs, anchor commands and trajectory. `Replay`
+  reconstructs the same-build encounter with no tactical wall-time at 1x or 0.5x.
+  Storage is in memory for one run; replay file interchange is not supported.
+- Encounter generation is opt-in in `Config`; the Unreal host enables it.
+  Density 1 is normal; density 3 is the approximately 5,000-bullet stress case.
 
 Tests cover cadence independence, 60/120 Hz comparison, orbit radius and poles,
 orthonormal frames, diagonal speed, pause/resume, repeated pausing, read-only target
-validation, convergence during evasion, Fixed depth, Follow return and invalid data.
+validation, convergence during evasion, Fixed depth, Follow return, invalid data,
+pattern invariants, swept collision, invulnerability, danger estimation, complete
+encounter timing, deterministic input/anchor playback and stress density.

@@ -5,9 +5,11 @@ namespace orbital
 Simulation::Simulation(Config config) : config_(config)
 {
     if (config_.tickRate != 60 && config_.tickRate != 120) config_.tickRate = 120;
+    config_.densityScale = std::clamp(config_.densityScale, 1u, 3u);
     if (!std::isfinite(config_.movementSpeed) || config_.movementSpeed < 0.0) config_.movementSpeed = 12.0;
     if (!std::isfinite(config_.convergeSpeed) || config_.convergeSpeed <= 0.0) config_.convergeSpeed = 20.0;
     if (!std::isfinite(config_.frameTurnSpeed) || config_.frameTurnSpeed <= 0.0) config_.frameTurnSpeed = 8.0;
+    recording_.config = config_;
 }
 
 void Simulation::record(EventKind kind)
@@ -51,16 +53,19 @@ bool Simulation::placeConverge(Vec3 destination)
     state_.anchor.arrivalFrame = turnTowards(state_.player.frame, destination - state_.player.position, 3.141592653589793);
     ++metrics_.convergePlacements;
     record(EventKind::ConvergePlaced);
+    if (config_.recordInputs) recording_.commands.push_back({state_.tick, Anchor::Converge, destination});
     return true;
 }
 
 bool Simulation::returnToFollow()
 {
     if (state_.mode != Mode::Tactical || state_.anchor.kind == Anchor::Follow) return false;
+    if (length(state_.player.position - state_.boss.position) < 0.5) return false;
     state_.anchor.kind = Anchor::Follow;
     state_.anchor.followDistance = length(state_.player.position - state_.boss.position);
     ++metrics_.followReturns;
     record(EventKind::FollowReturned);
+    if (config_.recordInputs) recording_.commands.push_back({state_.tick, Anchor::Follow, {}});
     return true;
 }
 
@@ -68,6 +73,7 @@ void Simulation::advance(double realSeconds, Input input)
 {
     if (!std::isfinite(realSeconds) || realSeconds < 0.0) return;
     metrics_.realTime += realSeconds;
+    if (state_.encounterComplete) return;
     if (state_.mode == Mode::Tactical)
     {
         metrics_.tacticalTime += realSeconds;
@@ -79,7 +85,7 @@ void Simulation::advance(double realSeconds, Input input)
     if (magnitude > 1.0) { input.right /= magnitude; input.up /= magnitude; }
     accumulator_ += realSeconds;
     const double dt = 1.0 / config_.tickRate;
-    while (accumulator_ + 1e-12 >= dt)
+    while (accumulator_ + 1e-12 >= dt && !state_.encounterComplete)
     {
         step(input);
         accumulator_ = std::max(0.0, accumulator_ - dt);
@@ -89,6 +95,7 @@ void Simulation::advance(double realSeconds, Input input)
 void Simulation::step(Input input)
 {
     const double dt = 1.0 / config_.tickRate;
+    if (config_.recordInputs) recording_.inputs.push_back(input);
     ++state_.tick;
     state_.gameTime = static_cast<double>(state_.tick) / config_.tickRate;
     auto& p = state_.player;
@@ -135,5 +142,50 @@ void Simulation::step(Input input)
     }
     p.velocity = (p.position - oldPosition) / dt;
     metrics_.travelDistance += length(p.position - oldPosition);
+    if (config_.recordInputs) recording_.trajectory.push_back(p.position);
+    if (config_.enableEncounter)
+    {
+        updateBullets(oldPosition, dt);
+        metrics_.patternTime[static_cast<unsigned>(state_.pattern)] += dt;
+        state_.encounterComplete = state_.tick >= config_.tickRate * 75;
+    }
+}
+
+void Simulation::updateBullets(Vec3 oldPlayerPosition, double dt)
+{
+    auto& bullets = state_.bullets;
+    const std::uint64_t phaseTicks = config_.tickRate * 25;
+    const Pattern pattern = static_cast<Pattern>(std::min<std::uint64_t>(2, (state_.tick - 1) / phaseTicks));
+    if (pattern != state_.pattern) { bullets.clear(); state_.pattern = pattern; }
+    const std::uint64_t localTick = (state_.tick - 1) % phaseTicks;
+    bullets.erase(std::remove_if(bullets.begin(), bullets.end(), [](const Bullet& b) { return b.age >= 10.0; }), bullets.end());
+    if (pattern == Pattern::Shell && localTick % (config_.tickRate * 7 / 2) == 0)
+        emitShell(bullets, state_.boss.position, nextBulletId_, config_.densityScale);
+    if (pattern == Pattern::Helix && localTick % (config_.tickRate / 2) == 0)
+        emitHelix(bullets, state_.boss.position, nextBulletId_, static_cast<double>(localTick) / config_.tickRate * 0.8, config_.densityScale);
+    if (pattern == Pattern::Lattice && localTick % (config_.tickRate * 6) == 0)
+        emitLattice(bullets, state_.boss.position, nextBulletId_, static_cast<unsigned>(localTick / (config_.tickRate * 6)), config_.densityScale);
+    for (Bullet& b : bullets)
+    {
+        const Vec3 old = b.position;
+        if (b.pattern == Pattern::Helix)
+        {
+            Vec3 relative = rotate(b.position - state_.boss.position, {1, 0, 0}, 0.35 * dt);
+            relative.x -= 12 * dt;
+            b.position = state_.boss.position + relative;
+            b.velocity = {-12, -relative.z * 0.35, relative.y * 0.35};
+        }
+        else b.position = b.position + b.velocity * dt;
+        b.age += dt;
+        if (state_.gameTime >= state_.invulnerableUntil &&
+            sweptHit(old, b.position, oldPlayerPosition, state_.player.position, b.radius + 0.35))
+        {
+            ++state_.hits;
+            state_.invulnerableUntil = state_.gameTime + 0.6;
+            record(EventKind::Hit);
+        }
+        b.dangerous = closestDistance(b.position - state_.player.position,
+            b.velocity - state_.player.velocity, 1.5) < b.radius + 1.5;
+    }
 }
 }

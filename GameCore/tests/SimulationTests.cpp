@@ -1,7 +1,9 @@
 #include "orbital/Simulation.h"
+#include "orbital/Replay.h"
 #include <cstdlib>
 #include <iostream>
 #include <limits>
+#include <chrono>
 
 using namespace orbital;
 namespace
@@ -123,9 +125,106 @@ void invalidInput()
     Simulation defaults(Config{0, -1, 0, -1});
     require(defaults.config().tickRate == 120 && defaults.config().convergeSpeed > 0, "invalid configuration defaults");
 }
+
+void bullets()
+{
+    require(sweptHit({-10, 0, 0}, {10, 0, 0}, {}, {}, 1), "swept hit catches tunnelling");
+    require(!sweptHit({-10, 2, 0}, {10, 2, 0}, {}, {}, 1), "swept near miss");
+    require(sweptHit({}, {}, {-10, 0, 0}, {10, 0, 0}, 1), "moving player swept hit");
+    require(near(closestDistance({10, 0, 0}, {-10, 0, 0}, 1.5), 0), "approaching danger");
+    require(near(closestDistance({10, 0, 0}, {10, 0, 0}, 1.5), 10), "receding danger clamps to now");
+    require(near(closestDistance({10, 0, 0}, {}, 1.5), 10), "zero relative velocity");
+    std::vector<Bullet> shell;
+    std::uint64_t nextId = 1;
+    emitShell(shell, {}, nextId);
+    require(shell.size() > 500 && shell.size() < 576, "intentional holes in dense shell");
+    for (const auto& b : shell)
+    {
+        require(near(length(b.position), 6) && near(length(b.velocity), 10), "shell initial radius and speed");
+        require(!shellOpening(normalized(b.velocity)), "shell leaves both passages open");
+    }
+    Config config; config.enableEncounter = true;
+    Simulation sim(config), other(config);
+    for (int i = 0; i < 360; ++i) sim.advance(1.0 / 30);
+    for (int i = 0; i < 1728; ++i) other.advance(1.0 / 144);
+    require(sim.snapshot().bullets.size() == other.snapshot().bullets.size(), "bullet count cadence independence");
+    require(sim.snapshot().bullets.size() > 1000 && sim.snapshot().bullets.size() < 2000, "typical shell population");
+    for (size_t i = 0; i < sim.snapshot().bullets.size(); ++i)
+    {
+        require(sim.snapshot().bullets[i].id == other.snapshot().bullets[i].id, "stable bullet ids");
+        require(length(sim.snapshot().bullets[i].position - other.snapshot().bullets[i].position) < 1e-8, "bullet trajectory cadence independence");
+    }
+    const auto before = sim.snapshot();
+    sim.setMode(Mode::Tactical); sim.advance(100);
+    require(sim.snapshot().bullets.size() == before.bullets.size(), "pause does not emit or expire bullets");
+    require(length(sim.snapshot().bullets.front().position - before.bullets.front().position) == 0, "pause freezes bullet position");
+    sim.setMode(Mode::Action); sim.advance(1.0 / 120);
+    require(sim.snapshot().tick == before.tick + 1, "bullet resume excludes thinking time");
+
+    // Place directly in one known shell ray before the shell arrives.
+    Simulation contact(config);
+    contact.setMode(Mode::Tactical);
+    Vec3 target;
+    for (const auto& b : shell) if (b.velocity.x < -9.5) { target = normalized(b.velocity) * 30; break; }
+    require(length(target) > 0 && contact.placeConverge(target), "setup known collision trajectory");
+    contact.setMode(Mode::Action); contact.advance(15);
+    require(contact.snapshot().hits > 0 && near(contact.snapshot().gameTime, 15), "hits are recorded and non-terminal");
+    double lastHit = -1;
+    for (const auto& e : contact.events()) if (e.kind == EventKind::Hit)
+    {
+        const double time = static_cast<double>(e.tick) / config.tickRate;
+        require(time - lastHit >= 0.6 - 1e-8, "invulnerability suppresses repeated contacts");
+        lastHit = time;
+    }
+}
+
+void replayAndEncounter()
+{
+    Config config; config.enableEncounter = true;
+    Simulation sim(config);
+    sim.advance(2, {0.5, 0});
+    sim.setMode(Mode::Tactical); sim.advance(45);
+    sim.placeConverge({-40, 12, 8}); sim.setMode(Mode::Action);
+    sim.advance(5, {0, 0.3});
+    sim.setMode(Mode::Tactical); sim.advance(20); sim.returnToFollow(); sim.setMode(Mode::Action);
+    sim.advance(18, {0.2, 0});
+    require(sim.snapshot().pattern == Pattern::Shell, "shell lasts 25 simulation seconds");
+    sim.advance(5);
+    require(sim.snapshot().pattern == Pattern::Helix, "helix follows shell");
+    require(!sim.snapshot().bullets.empty() && sim.snapshot().bullets.front().pattern == Pattern::Helix, "helix bullets generated");
+    sim.advance(25);
+    require(sim.snapshot().pattern == Pattern::Lattice, "lattice follows helix");
+    require(!sim.snapshot().bullets.empty() && sim.snapshot().bullets.front().pattern == Pattern::Lattice, "lattice bullets generated");
+    sim.advance(30);
+    require(sim.snapshot().encounterComplete && sim.snapshot().tick == 9000, "encounter ends at 75 seconds without overshoot");
+    for (double time : sim.metrics().patternTime) require(near(time, 25), "each pattern receives 25 seconds");
+    Replay replay(sim.recording());
+    for (int i = 0; i < 900; ++i) replay.advance(1.0 / 12);
+    require(replay.finished() && near(replay.snapshot().gameTime, 75), "replay removes 65 seconds of tactical thinking");
+    require(length(replay.snapshot().player.position - sim.snapshot().player.position) < 1e-8, "replay reproduces anchor trajectory");
+    require(replay.snapshot().hits == sim.snapshot().hits, "replay reproduces collision events");
+    require(replay.snapshot().bullets.size() == sim.snapshot().bullets.size(), "replay reproduces bullet population");
+    require(length(replay.snapshot().bullets.front().position - sim.snapshot().bullets.front().position) < 1e-8, "replay reproduces pattern motion");
+    Replay slow(sim.recording()); slow.setSlow(true); slow.advance(2);
+    require(near(slow.snapshot().gameTime, 1), "half-speed replay");
+    require(near(sim.snapshot().gameTime, 75), "replay does not modify recorded run");
+}
+
+void stress()
+{
+    Config config; config.enableEncounter = true; config.densityScale = 3; config.recordInputs = false;
+    Simulation sim(config);
+    sim.advance(7.1);
+    require(sim.snapshot().bullets.size() > 4500 && sim.snapshot().bullets.size() < 5500, "approximately 5000 bullets in stress configuration");
+    const auto start = std::chrono::steady_clock::now();
+    sim.advance(2);
+    const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    std::cout << "Stress: " << sim.snapshot().bullets.size() << " bullets, " << ms / 240 << " ms/core tick at 120 Hz (headless)\n";
+    require(sim.recording().inputs.empty() && sim.recording().trajectory.empty(), "replay simulation can disable recursive recording");
+}
 }
 int main()
 {
-    cadence(); orbit(); pause(); anchors(); invalidInput();
-    std::cout << "PASS: " << checks << " checks (cadence, orbit, frames, pause, anchors, invalid input)\n";
+    cadence(); orbit(); pause(); anchors(); invalidInput(); bullets(); replayAndEncounter(); stress();
+    std::cout << "PASS: " << checks << " checks (cadence, orbit, frames, pause, anchors, bullets, collision, danger)\n";
 }

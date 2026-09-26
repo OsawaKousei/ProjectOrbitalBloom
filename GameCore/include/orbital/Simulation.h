@@ -1,6 +1,7 @@
 #pragma once
 
 #include "orbital/Math.h"
+#include "orbital/Bullet.h"
 #include <cstdint>
 #include <vector>
 
@@ -8,7 +9,7 @@ namespace orbital
 {
 enum class Mode { Action, Tactical };
 enum class Anchor { Follow, Converge, Fixed };
-enum class EventKind { TacticalEntered, TacticalExited, ConvergePlaced, Arrived, FollowReturned };
+enum class EventKind { TacticalEntered, TacticalExited, ConvergePlaced, Arrived, FollowReturned, Hit };
 
 struct Config
 {
@@ -16,6 +17,9 @@ struct Config
     double movementSpeed = 12.0;
     double convergeSpeed = 20.0;
     double frameTurnSpeed = 8.0;
+    bool enableEncounter = false;
+    bool recordInputs = true;
+    unsigned densityScale = 1; // Development stress comparison; not a difficulty mode.
 };
 struct Input { double right = 0.0; double up = 0.0; };
 struct PlayerState
@@ -40,6 +44,11 @@ struct RenderSnapshot
     PlayerState player;
     BossState boss;
     AnchorState anchor;
+    std::vector<Bullet> bullets;
+    unsigned hits = 0;
+    double invulnerableUntil = 0.0;
+    Pattern pattern = Pattern::Shell;
+    bool encounterComplete = false;
 };
 struct Event
 {
@@ -58,6 +67,21 @@ struct Metrics
     unsigned convergePlacements = 0;
     unsigned followReturns = 0;
     std::vector<double> tacticalIntervals;
+    double patternTime[3] = {};
+};
+
+struct RecordedCommand
+{
+    std::uint64_t tick;
+    Anchor anchor;
+    Vec3 destination;
+};
+struct Recording
+{
+    Config config;
+    std::vector<Input> inputs;
+    std::vector<RecordedCommand> commands;
+    std::vector<Vec3> trajectory;
 };
 
 class Simulation
@@ -73,15 +97,19 @@ public:
     const Metrics& metrics() const { return metrics_; }
     const std::vector<Event>& events() const { return events_; }
     const Config& config() const { return config_; }
+    const Recording& recording() const { return recording_; }
 
 private:
     void step(Input input);
     void record(EventKind kind);
+    void updateBullets(Vec3 oldPlayerPosition, double dt);
     Config config_;
     RenderSnapshot state_;
     Metrics metrics_;
     std::vector<Event> events_;
     double accumulator_ = 0.0;
     double tacticalStart_ = 0.0;
+    std::uint64_t nextBulletId_ = 1;
+    Recording recording_;
 };
 }

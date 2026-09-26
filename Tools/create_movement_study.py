@@ -28,7 +28,14 @@ def create_movement_study():
     world.get_world_settings().set_editor_property("default_game_mode", mode)
     if not unreal.EditorLoadingAndSavingUtils.save_map(world, path):
         raise RuntimeError("Could not save movement study map.")
-    unreal.log("Movement study saved: " + path + "; open it when the current level is saved.")
+    # An inactive WorldFactory world retains RF_Standalone. Loading the same map
+    # immediately can trip Map_Load's world-leak check. Release it after saving.
+    package = world.get_outermost()
+    world = None
+    unloaded, error = unreal.EditorLoadingAndSavingUtils.unload_packages([package])
+    if not unloaded:
+        unreal.log_warning("Map saved, but restart Editor before opening it: " + str(error))
+    unreal.log("Movement study saved: " + path)
 
 
 create_movement_study()
