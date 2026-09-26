@@ -1,0 +1,131 @@
+#include "orbital/Simulation.h"
+#include <cstdlib>
+#include <iostream>
+#include <limits>
+
+using namespace orbital;
+namespace
+{
+int checks = 0;
+void require(bool condition, const char* message)
+{
+    ++checks;
+    if (!condition) { std::cerr << "FAIL: " << message << '\n'; std::exit(1); }
+}
+bool near(double a, double b, double tolerance = 1e-8) { return std::abs(a - b) < tolerance; }
+void checkFrame(Frame f)
+{
+    require(near(length(f.forward), 1) && near(length(f.right), 1) && near(length(f.up), 1), "unit frame axes");
+    require(near(dot(f.forward, f.right), 0) && near(dot(f.forward, f.up), 0) && near(dot(f.right, f.up), 0), "orthogonal frame axes");
+    require(length(cross(f.forward, f.right) - f.up) < 1e-8, "consistent frame handedness");
+}
+void cadence()
+{
+    Simulation a, b, c;
+    for (int i = 0; i < 300; ++i) a.advance(1.0 / 30, {0.6, 0.8});
+    for (int i = 0; i < 1440; ++i) b.advance(1.0 / 144, {0.6, 0.8});
+    for (int i = 0; i < 100; ++i) { c.advance(0.007, {0.6, 0.8}); c.advance(0.093, {0.6, 0.8}); }
+    require(a.snapshot().tick == 1200 && b.snapshot().tick == 1200 && c.snapshot().tick == 1200, "cadence-independent tick count");
+    require(length(a.snapshot().player.position - b.snapshot().player.position) < 1e-8, "30 vs 144 fps");
+    require(length(a.snapshot().player.position - c.snapshot().player.position) < 1e-8, "irregular frame cadence");
+    Simulation sixty(Config{60});
+    sixty.advance(10, {0.6, 0.8});
+    require(sixty.snapshot().tick == 600, "60 Hz selectable");
+    require(length(sixty.snapshot().player.position - a.snapshot().player.position) < 0.02, "60/120 Hz trajectory agreement");
+}
+void orbit()
+{
+    Simulation sim;
+    for (int i = 0; i < 600; ++i)
+    {
+        sim.advance(0.1, {0, 1});
+        require(near(length(sim.snapshot().player.position), 80), "follow maintains radius over poles");
+        checkFrame(sim.snapshot().player.frame);
+    }
+    Simulation diagonal, straight;
+    diagonal.advance(1, {1, 1}); straight.advance(1, {1, 0});
+    require(near(diagonal.metrics().travelDistance, straight.metrics().travelDistance), "diagonal input speed capped");
+    checkFrame(turnTowards(Frame{}, {-1, 0, 0}, 3.141592653589793));
+    checkFrame(turnTowards(Frame{}, {}, 1));
+}
+void pause()
+{
+    Simulation sim;
+    sim.advance(0.004);
+    const auto before = sim.snapshot();
+    sim.setMode(Mode::Tactical);
+    sim.setMode(Mode::Tactical);
+    sim.advance(300, {1, 1});
+    require(sim.snapshot().tick == before.tick && length(sim.snapshot().player.position - before.player.position) == 0, "tactical fully freezes simulation");
+    sim.setMode(Mode::Action);
+    sim.advance(1.0 / 120 - 0.004);
+    require(sim.snapshot().tick == 1, "resume retains fractional step without tactical catch-up");
+    require(near(sim.metrics().tacticalTime, 300) && sim.metrics().tacticalEntries == 1, "pause metrics");
+    require(sim.metrics().tacticalIntervals.size() == 1 && near(sim.metrics().tacticalIntervals[0], 300), "individual tactical interval");
+    for (int i = 0; i < 10; ++i) { sim.setMode(Mode::Tactical); sim.setMode(Mode::Action); }
+    require(sim.snapshot().tick == 1 && sim.metrics().tacticalEntries == 11, "repeated pausing allowed");
+}
+void anchors()
+{
+    Simulation sim;
+    require(!sim.placeConverge({-40, 20, 10}), "placement action guard");
+    sim.setMode(Mode::Tactical);
+    require(!sim.placeConverge(sim.snapshot().player.position), "reject zero-distance anchor");
+    require(!sim.placeConverge({0, 0, 0}), "reject boss centre");
+    require(!sim.placeConverge({std::numeric_limits<double>::quiet_NaN(), 0, 0}), "reject invalid destination");
+    const Vec3 destination{-40, 20, 10};
+    const size_t eventCount = sim.events().size();
+    require(sim.canPlaceConverge(destination), "placement preview accepts useful destination");
+    require(sim.events().size() == eventCount && sim.snapshot().anchor.kind == Anchor::Follow, "placement preview is read-only");
+    require(sim.placeConverge(destination), "accept tactical placement");
+    require(length(sim.events().back().anchor.destination - destination) == 0, "placement event preserves target for replay");
+    const auto tick = sim.snapshot().tick;
+    sim.advance(5);
+    require(sim.snapshot().tick == tick, "placing anchor does not advance time");
+    sim.setMode(Mode::Action);
+    sim.advance(1, {0.5, 0.2});
+    require(sim.snapshot().anchor.kind == Anchor::Converge, "converge remains active en route");
+    require(length(sim.snapshot().player.position - destination) < length(Vec3{-80, 0, 0} - destination), "converge progresses during evasion");
+    sim.advance(4);
+    require(sim.snapshot().anchor.kind == Anchor::Fixed, "automatic fixed arrival");
+    require(length(sim.snapshot().player.position - destination) < 1e-8, "arrives without overshoot");
+    const Frame arrival = sim.snapshot().anchor.arrivalFrame;
+    sim.advance(2, {1, 0.5});
+    require(near(dot(sim.snapshot().player.position - destination, arrival.forward), 0), "fixed has no depth displacement");
+    checkFrame(sim.snapshot().player.frame);
+    require(!sim.returnToFollow(), "follow return is tactical operation");
+    sim.setMode(Mode::Tactical);
+    const double radius = length(sim.snapshot().player.position);
+    require(sim.returnToFollow(), "fixed to follow");
+    sim.setMode(Mode::Action);
+    sim.advance(5, {1, 0});
+    require(near(length(sim.snapshot().player.position), radius), "follow captures current distance");
+    unsigned arrivals = 0;
+    for (const auto& event : sim.events()) if (event.kind == EventKind::Arrived) { ++arrivals; require(event.tick > 0, "arrival event uses completed tick"); }
+    require(arrivals == 1, "arrival emits exactly once");
+
+    Simulation evasion;
+    evasion.setMode(Mode::Tactical);
+    evasion.placeConverge({-50, 20, 10});
+    evasion.setMode(Mode::Action);
+    for (int i = 0; i < 1200 && evasion.snapshot().anchor.kind != Anchor::Fixed; ++i)
+        evasion.advance(1.0 / 120, {1, 1});
+    require(evasion.snapshot().anchor.kind == Anchor::Fixed, "continuous evasion can still reach anchor");
+    checkFrame(evasion.snapshot().player.frame);
+}
+void invalidInput()
+{
+    Simulation sim;
+    sim.advance(-1); sim.advance(std::numeric_limits<double>::infinity());
+    require(sim.snapshot().tick == 0, "invalid elapsed time ignored");
+    sim.advance(1, {std::numeric_limits<double>::quiet_NaN(), 0});
+    require(finite(sim.snapshot().player.position), "invalid input sanitized");
+    Simulation defaults(Config{0, -1, 0, -1});
+    require(defaults.config().tickRate == 120 && defaults.config().convergeSpeed > 0, "invalid configuration defaults");
+}
+}
+int main()
+{
+    cadence(); orbit(); pause(); anchors(); invalidInput();
+    std::cout << "PASS: " << checks << " checks (cadence, orbit, frames, pause, anchors, invalid input)\n";
+}

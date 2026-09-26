@@ -61,6 +61,8 @@ xcuserdata/
 # ------------------------------------------------------------
 Makefile
 CMakeLists.txt
+!GameCore/CMakeLists.txt
+/GameCore/build/
 *.code-workspace
 
 # ------------------------------------------------------------
@@ -94,6 +96,8 @@ CMakeLists.txt
 *.swp
 *.swo
 *~
+__pycache__/
+*.pyc
 
 # ------------------------------------------------------------
 # Windows
