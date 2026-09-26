@@ -1,0 +1,30 @@
+# テキストファイルの改行コードをGit側で統一
+* text=auto
+
+# C++ / Unreal設定ファイル
+*.cpp text
+*.h text
+*.hpp text
+*.cs text
+*.ini text
+*.uproject text
+*.uplugin text
+*.json text
+*.xml text
+*.md text
+*.txt text
+
+# Unreal Engine assets
+# バイナリとして扱い、無意味なテキスト差分を取らない
+*.uasset binary
+*.umap binary
+
+# 一般的なバイナリ
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.bmp binary
+*.tga binary
+*.wav binary
+*.mp3 binary
+*.fbx binary
