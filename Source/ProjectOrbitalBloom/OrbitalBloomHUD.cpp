@@ -87,8 +87,8 @@ void AOrbitalBloomHUD::DrawHUD()
         DrawText(TEXT("CONTACT"), Warning, Canvas->SizeX * 0.5f - 35, 36);
         DrawLine(36, 90, Canvas->SizeX - 36, 90, Warning, 2);
     }
-    DrawText(Tactical ? TEXT("RMB Orbit  |  V Player/Boss  |  Wheel Zoom  |  C Anchor  |  F Follow  |  H Danger  |  Tab Resume")
-        : (Mode->IsReplay() ? TEXT("V Camera  |  T Trajectory  |  X 0.5x / 1x  |  Enter Replay  |  R Restart  |  Esc Exit") : TEXT("W A S D  Fly in current plane    Tab / Space  Tactical    R Restart")), Ink, 36, Canvas->SizeY - 42, nullptr, 0.95f);
+    DrawText(Tactical ? TEXT("RMB Orbit  |  V Player/Boss  |  Wheel Zoom  |  C Anchor  |  F Follow  |  H Danger  |  X Resume")
+        : (Mode->IsReplay() ? TEXT("V Camera  |  T Trajectory  |  X 0.5x / 1x  |  Enter Replay  |  R Restart  |  Esc Exit") : TEXT("Arrow Keys  Fly in current plane    X  Tactical    R Restart")), Ink, 36, Canvas->SizeY - 42, nullptr, 0.95f);
     if (Mode->IsReplay())
     {
         DrawText(FString::Printf(TEXT("%s   %s   %s"), Mode->ReplayWide() ? TEXT("WIDE") : TEXT("CHASE"), Mode->ReplaySlow() ? TEXT("0.5x") : TEXT("1x"), Mode->IsReplayFinished() ? TEXT("COMPLETE") : TEXT("")), Ink, 36, 132);

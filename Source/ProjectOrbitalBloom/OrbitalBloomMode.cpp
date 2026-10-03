@@ -119,7 +119,7 @@ void AOrbitalBloomMode::UpdateInput(float DeltaSeconds)
         Playback->advance(DeltaSeconds);
         return;
     }
-    if (PC->WasInputKeyJustPressed(EKeys::Tab) || PC->WasInputKeyJustPressed(EKeys::SpaceBar)) ToggleTactical();
+    if (PC->WasInputKeyJustPressed(EKeys::X)) ToggleTactical();
     if (PC->WasInputKeyJustPressed(EKeys::H)) bShowDanger = !bShowDanger;
     orbital::Input Input;
     if (Snapshot().mode == orbital::Mode::Tactical)
@@ -158,8 +158,8 @@ void AOrbitalBloomMode::UpdateInput(float DeltaSeconds)
     }
     else
     {
-        Input.right = (PC->IsInputKeyDown(EKeys::D) ? 1.0 : 0.0) - (PC->IsInputKeyDown(EKeys::A) ? 1.0 : 0.0);
-        Input.up = (PC->IsInputKeyDown(EKeys::W) ? 1.0 : 0.0) - (PC->IsInputKeyDown(EKeys::S) ? 1.0 : 0.0);
+        Input.right = (PC->IsInputKeyDown(EKeys::Right) ? 1.0 : 0.0) - (PC->IsInputKeyDown(EKeys::Left) ? 1.0 : 0.0);
+        Input.up = (PC->IsInputKeyDown(EKeys::Up) ? 1.0 : 0.0) - (PC->IsInputKeyDown(EKeys::Down) ? 1.0 : 0.0);
     }
     Core.advance(DeltaSeconds, Input);
     if (Core.snapshot().encounterComplete) { LogEvents(); LogSession(); StartReplay(); }

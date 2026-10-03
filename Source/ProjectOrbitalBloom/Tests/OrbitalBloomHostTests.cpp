@@ -30,7 +30,7 @@ public:
         }
         if (Now - Start > 25)
         {
-            PC->InputKey(FInputKeyEventArgs::CreateSimulated(EKeys::W, IE_Released, 0.0));
+            PC->InputKey(FInputKeyEventArgs::CreateSimulated(EKeys::Up, IE_Released, 0.0));
             Test->AddError(TEXT("Host input sequence timed out.")); return true;
         }
         if (Now < Next) return false;
@@ -45,11 +45,11 @@ public:
         case 0: Tap(EKeys::R); break;
         case 1:
             Position = S.player.position;
-            PC->InputKey(FInputKeyEventArgs::CreateSimulated(EKeys::W, IE_Pressed, 1.0));
+            PC->InputKey(FInputKeyEventArgs::CreateSimulated(EKeys::Up, IE_Pressed, 1.0));
             break;
         case 2:
-            PC->InputKey(FInputKeyEventArgs::CreateSimulated(EKeys::W, IE_Released, 0.0));
-            Test->TestTrue(TEXT("W input moves authoritative GameCore player"), orbital::length(S.player.position - Position) > 1.0);
+            PC->InputKey(FInputKeyEventArgs::CreateSimulated(EKeys::Up, IE_Released, 0.0));
+            Test->TestTrue(TEXT("Up input moves authoritative GameCore player"), orbital::length(S.player.position - Position) > 1.0);
             for (TActorIterator<AActor> It(World); It; ++It)
             {
                 if (auto* Mesh = It->FindComponentByClass<UStaticMeshComponent>(); Mesh && Mesh->GetFName() == TEXT("PlayerProxy"))
@@ -59,7 +59,7 @@ public:
                 }
             }
             Test->TestTrue(TEXT("Player render proxy exists"), FoundProxy);
-            Tap(EKeys::Tab); break;
+            Tap(EKeys::X); break;
         case 3:
             Test->TestTrue(TEXT("Tactical input reaches core"), S.mode == orbital::Mode::Tactical);
             FrozenTick = S.tick; Position = S.player.position;
@@ -76,15 +76,15 @@ public:
             Tap(EKeys::Enter); break;
         case 7:
             Test->TestTrue(TEXT("Confirm sends converge command"), S.anchor.kind == orbital::Anchor::Converge);
-            Tap(EKeys::Tab); break;
+            Tap(EKeys::X); break;
         case 8:
             if (S.anchor.kind != orbital::Anchor::Fixed) return false;
             Test->TestTrue(TEXT("Action advances core"), S.tick > FrozenTick);
-            Tap(EKeys::Tab); break;
+            Tap(EKeys::X); break;
         case 9: Tap(EKeys::F); break;
         case 10:
             Test->TestTrue(TEXT("Follow return command"), S.anchor.kind == orbital::Anchor::Follow);
-            Tap(EKeys::Tab);
+            Tap(EKeys::X);
             return true;
         }
         ++Stage;
